@@ -23,13 +23,11 @@ import json
 import os
 import argparse
 import logging
-import joblib
+from joblib import dump
 from typing import Dict, Any, Optional
 
 from videre.models.sklearn_models import get_model, get_model_names
 from videre.evals.metrics import compute_metrics
-from sklearn.preprocessing import StandardScaler
-from sklearn.utils.class_weight import compute_class_weight
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -45,9 +43,6 @@ def parse_args():
     parser.add_argument("--output-dir", type=str, default="artifacts", help="Output directory")
     parser.add_argument("--seed", type=int, default=1337, help="Random seed")
     parser.add_argument("--config", type=str, default=None, help="Path to config file")
-    parser.add_argument("--scale", action="store_true", default=True, help="Scale features")
-    parser.add_argument("--no-scale", dest="scale", action="store_false", help="Disable scaling")
-    parser.add_argument("--class-weight", type=str, choices=["balanced", "none"], default="none", help="Class weight strategy")
     return parser.parse_args()
 
 
@@ -58,9 +53,15 @@ def load_data(feature_dir: str, split_file: str):
     Returns:
         Tuple of (X, y, meta, split)
     """
-    # TODO: Load X.npy, y.npy, meta.json, and split file
-    # TODO: Log data statistics
-    raise NotImplementedError
+    # Load feature arrays
+    X = np.load(os.path.join(feature_dir, "X.npy"))
+    y = np.load(os.path.join(feature_dir, "y.npy"))
+
+    # Load train/val/test split
+    with open(split_file, "r") as f:
+        split = json.load(f)
+
+    return X, y, split
 
 
 def load_config(config_path: Optional[str], model_name: str) -> Dict[str, Any]:
@@ -70,22 +71,37 @@ def load_config(config_path: Optional[str], model_name: str) -> Dict[str, Any]:
     Returns:
         Dictionary of model hyperparameters
     """
-    # TODO: Load config from JSON file if provided, else return defaults
-    # TODO: Default configs: lr (max_iter, solver), svm (kernel, probability), mlp (hidden_layer_sizes, max_iter)
-    raise NotImplementedError
+    if config_path is None:
+        return {}
+    with open(config_path, "r") as f:
+        cfg = json.load(f)
+    # Assume config has the shape: {"model_params": {...}}
+    return cfg["model_params"]
 
 
-def save_artifacts(model, scaler, metrics_train, metrics_val, config, model_dir, results_dir, run_name):
+def save_artifacts(model, metrics_train, metrics_val, config, model_dir, results_dir, run_name):
     """
     Save model, scaler, metrics, and configuration.
     
     Uses joblib to save sklearn models (faster and more efficient than pickle for numpy arrays).
     """
-    # TODO: Save model using joblib.dump to <run_name>.joblib
-    # TODO: Save scaler using joblib.dump to <run_name>_scaler.joblib (if provided)
-    # TODO: Save metrics_train.json and metrics_val.json
-    # TODO: Save run_config.json
-    raise NotImplementedError
+    # Save model
+    model_path = os.path.join(model_dir, f"{run_name}.joblib")
+    dump(model, model_path)
+
+    # Save metrics
+    metrics_train_path = os.path.join(results_dir, f"{run_name}_metrics_train.json")
+    metrics_val_path = os.path.join(results_dir, f"{run_name}_metrics_val.json")
+
+    with open(metrics_train_path, "w") as f:
+        json.dump(metrics_train, f, indent=2)
+    with open(metrics_val_path, "w") as f:
+        json.dump(metrics_val, f, indent=2)
+
+    # Save run config
+    config_path = os.path.join(results_dir, f"{run_name}_run_config.json")
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=2)
 
 
 def main():
@@ -98,7 +114,7 @@ def main():
     logger.info(f"Random seed set to {args.seed}")
     
     # Load data and splits
-    X, y, meta, split = load_data(args.feature_dir, args.split_file)
+    X, y, split = load_data(args.feature_dir, args.split_file)
     
     # Split into train/val
     train_indices = np.array(split["train"])
@@ -157,6 +173,8 @@ def main():
     # Output directories
     model_dir = os.path.join(args.output_dir, "models")
     results_dir = os.path.join(args.output_dir, "results", args.run_name)
+    os.makedirs(model_dir, exist_ok=True)
+    os.makedirs(results_dir, exist_ok=True)
 
     # Prepare config for saving
     saved_config = {
