@@ -13,12 +13,3 @@ def get_model(model_name: str, **kwargs):
 
 def get_model_names():
     return list(models.keys())
-
-def make_lr(**kwargs):
-    return LogisticRegression(**kwargs)
-
-def make_svm(**kwargs):
-    return SVC(**kwargs)
-
-def make_mlp(**kwargs):
-    return MLPClassifier(**kwargs)

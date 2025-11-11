@@ -28,6 +28,8 @@ from typing import Dict, Any, Optional
 
 from videre.models.sklearn_models import get_model, get_model_names
 from videre.evals.metrics import compute_metrics
+from sklearn.preprocessing import StandardScaler
+from sklearn.utils.class_weight import compute_class_weight
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -87,25 +89,93 @@ def save_artifacts(model, scaler, metrics_train, metrics_val, config, model_dir,
 
 
 def main():
-    """
-    Main training function.
+    """Main training function."""
+    # Parse arguments
+    args = parse_args()
     
-    Steps:
-    1. Parse arguments
-    2. Set random seed
-    3. Load data and splits
-    4. Split into train/val
-    5. Scale features (if enabled)
-    6. Load model config
-    7. Compute class weights (if enabled)
-    8. Initialize and train model
-    9. Get predictions and probabilities
-    10. Compute metrics
-    11. Create output directories
-    12. Save artifacts
-    """
-    # TODO: Implement main training pipeline
-    raise NotImplementedError
+    # Set random seed
+    np.random.seed(args.seed)
+    logger.info(f"Random seed set to {args.seed}")
+    
+    # Load data and splits
+    X, y, meta, split = load_data(args.feature_dir, args.split_file)
+    
+    # Split into train/val
+    train_indices = np.array(split["train"])
+    val_indices = np.array(split["val"])
+    
+    X_train = X[train_indices]
+    y_train = y[train_indices]
+    X_val = X[val_indices]
+    y_val = y[val_indices]
+    
+    logger.info(f"Training set: {len(X_train)} samples")
+    logger.info(f"Validation set: {len(X_val)} samples")
+    
+    # Load model config
+    model_config = load_config(args.config, args.model)
+    
+    # Add random_state to model config
+    if "random_state" not in model_config:
+        model_config["random_state"] = args.seed
+    
+    # Initialize and train model
+    logger.info(f"Initializing {args.model} model...")
+    model = get_model(args.model, **model_config)
+    
+    logger.info("Training model...")
+    model.fit(X_train, y_train)
+    logger.info("Training completed")
+    
+    # Get predictions and probabilities
+    logger.info("Computing predictions...")
+    y_train_pred = model.predict(X_train)
+    y_val_pred = model.predict(X_val)
+    
+    # Get probabilities if available
+    try:
+        y_train_proba = model.predict_proba(X_train)
+        y_val_proba = model.predict_proba(X_val)
+    except AttributeError:
+        logger.warning("Model does not support predict_proba()")
+        y_train_proba = None
+        y_val_proba = None
+    
+    # Compute metrics
+    logger.info("Computing metrics...")
+    metrics_train = compute_metrics(y_train, y_train_pred, y_train_proba)
+    metrics_val = compute_metrics(y_val, y_val_pred, y_val_proba)
+    
+    logger.info("Training metrics:")
+    for key, value in metrics_train.items():
+        logger.info(f"  {key}: {value:.4f}")
+    
+    logger.info("Validation metrics:")
+    for key, value in metrics_val.items():
+        logger.info(f"  {key}: {value:.4f}")
+    
+    # Output directories
+    model_dir = os.path.join(args.output_dir, "models")
+    results_dir = os.path.join(args.output_dir, "results", args.run_name)
+
+    # Prepare config for saving
+    saved_config = {
+        "run_name": args.run_name,
+        "model": args.model,
+        "model_params": model_config,
+        "seed": args.seed,
+        "feature_dir": args.feature_dir,
+        "split_file": args.split_file,
+        "train_samples": len(X_train),
+        "val_samples": len(X_val),
+        "n_features": X_train.shape[1]
+    }
+    
+    # Save artifacts
+    save_artifacts(model, metrics_train, metrics_val, saved_config, 
+                   model_dir, results_dir, args.run_name)
+    
+    logger.info("Training completed!")
 
 
 if __name__ == "__main__":
