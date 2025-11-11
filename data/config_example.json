@@ -1,0 +1,8 @@
+{
+  "model_params": {
+    "max_iter": 2000,
+    "solver": "lbfgs",
+    "C": 1.0
+  }
+}
+
