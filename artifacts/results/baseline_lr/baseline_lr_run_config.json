@@ -1,0 +1,13 @@
+{
+  "run_name": "baseline_lr",
+  "model": "lr",
+  "model_params": {
+    "random_state": 1337
+  },
+  "seed": 1337,
+  "feature_dir": "features/v1",
+  "split_file": "data/splits/default.json",
+  "train_samples": 292,
+  "val_samples": 62,
+  "n_features": 384
+}
