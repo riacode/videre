@@ -20,7 +20,7 @@ import argparse
 import logging
 import torch
 from torch.utils.data import TensorDataset, DataLoader
-
+from videre.models.torch_models import PatchCNN
 from videre.evals.metrics import compute_metrics
 from videre.evals.plots import plot_roc_curve, plot_pr_curve, plot_confusion_matrix
 
@@ -43,13 +43,24 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Using device: {device}")
 
-    # Load PyTorch model
+    with open(os.path.join(args.feature_dir, "meta.json"), "r") as f:
+        meta = json.load(f)
+    patch_dim = meta["embedding_dim"]
+
+    model = PatchCNN(
+        embedding_dim=patch_dim,   # 384
+        num_classes=2
+    )
+
+
     model_path = os.path.join(args.output_dir, "models", f"{args.run_name}.pt")
     logger.info(f"Loading model from {model_path}")
+    model.load_state_dict(torch.load(model_path, map_location=device))
 
-    model = torch.load(model_path, map_location=device)
+    
+    
+    model = model.to(device)
     model.eval()
-    model.to(device)
 
     # Load features
     logger.info(f"Loading data from {args.feature_dir}")
@@ -59,6 +70,10 @@ def main():
     # Ensure data is float32 for PyTorch
     X = X.astype("float32")
     y = y.astype("int64")
+
+    H = meta["grid_h"]
+    W = meta["grid_w"]
+    X = X.reshape(-1, patch_dim, H, W)
 
     with open(args.split_file, "r") as f:
         split = json.load(f)
@@ -92,7 +107,7 @@ def main():
                 else:
                     p = torch.softmax(outputs, dim=1)
                     pred = torch.argmax(p, dim=1).cpu().numpy()
-                    prob = p[:, 1].cpu().numpy() if outputs.shape[1] == 2 else p.cpu().numpy()
+                    prob = p[:, 1].cpu().numpy()
             else:
                 raise ValueError("Model output shape not recognized.")
 

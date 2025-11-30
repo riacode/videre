@@ -5,11 +5,10 @@ CLI to train a CNN classifier on patch-token features for a given split.
 
 Inputs:
   - features/<ver>/{X.npy, y.npy, meta.json}
-  - data/splits/<split>.json
-  - (optional) config file with hyperparameters
+  - data/splits/<default_split>.json
 
 Outputs:
-  - artifacts/models/<run_name>.pth
+  - artifacts/models/<run_name>.pt
   - artifacts/results/<run_name>/metrics_train.json
   - artifacts/results/<run_name>/metrics_val.json
   - artifacts/results/<run_name>/run_config.json
@@ -31,7 +30,7 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
 from videre.evals.metrics import compute_metrics
-from videre.models.torch_models import get_cnn_model
+from videre.models.torch_models import PatchCNN
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -57,14 +56,7 @@ def load_data(feature_dir: str, split_file: str):
         split = json.load(f)
 
     return X, y, meta, split
-
-def load_config(config_path: Optional[str]) -> Dict[str, Any]:
-    if config_path is None:
-        return {}
-    with open(config_path, "r") as f:
-        cfg = json.load(f)
-    return cfg["model_params"]
-
+    
 class PatchFeatureDataset(Dataset):
     def __init__(self, X, y):
         self.X = torch.tensor(X, dtype=torch.float32)
@@ -77,7 +69,7 @@ class PatchFeatureDataset(Dataset):
         return self.X[idx], self.y[idx]
 
 def save_artifacts(model, metrics_train, metrics_val, config, model_dir, results_dir, run_name):
-    model_path = os.path.join(model_dir, f"{run_name}.pth")
+    model_path = os.path.join(model_dir, f"{run_name}.pt")
     torch.save(model.state_dict(), model_path)
 
     with open(os.path.join(results_dir, f"{run_name}_metrics_train.json"), "w") as f:
@@ -93,6 +85,12 @@ def main():
     args = parse_args()
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
+
+    cfg = { # Just a default placeholder config 
+        "lr": 1e-3,
+        "epochs": 10,
+        "weight_decay": 0.0,
+    }
 
     # Load arrays, metadata, and split indices
     X, y, meta, split = load_data(args.feature_dir, args.split_file)
@@ -122,15 +120,22 @@ def main():
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
 
-    # Load model config
-    cfg = load_config(args.config)
-    model = get_cnn_model(patch_dim, **cfg)
+    model = PatchCNN(
+        embedding_dim=patch_dim,   # 384
+        num_classes=2
+    )
+    
     model = model.to("cuda")
 
     # Training components
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.get("lr", 1e-3))
-    epochs = cfg.get("epochs", 10)
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        lr=cfg["lr"],
+        weight_decay=cfg["weight_decay"]
+    )
+    epochs = cfg["epochs"]
+
 
     # Training loop
     for epoch in range(epochs):
@@ -178,8 +183,8 @@ def main():
         "run_name": args.run_name,
         "feature_dir": args.feature_dir,
         "split_file": args.split_file,
-        "model_params": cfg,
         "patch_dim": patch_dim,
+        "model_params": cfg,
         "grid_h": H,
         "grid_w": W,
         "seed": args.seed,

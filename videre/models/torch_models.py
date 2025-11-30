@@ -18,13 +18,12 @@ class PatchCNN(nn.Module):
         self.fc = nn.Linear(32, num_classes)
     
     def forward(self, x):
-        # x: (batch, T, H, W, D)
-        batch, T, H, W, D = x.shape
-        x = x.view(batch*T, H, W, D).permute(0, 3, 1, 2)  # (batch*T, D, H, W)
+        # x: (batch, D, H, W)
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = F.relu(self.conv3(x))
-        x = self.pool(x).view(batch, T, -1)  # (batch, T, 32)
-        x = x.mean(dim=1)                     # temporal mean pooling
+        x = self.pool(x)      # (batch, 32, 1, 1)
+        x = x.squeeze(-1).squeeze(-1)
         x = self.fc(x)
         return x
+
