@@ -42,12 +42,12 @@ def parse_args():
     parser.add_argument("--run-name", type=str, required=True, help="Run name")
     parser.add_argument("--output-dir", type=str, default="artifacts", help="Output directory")
     parser.add_argument("--seed", type=int, default=1337, help="Random seed")
-    parser.add_argument("--config", type=str, default=None, help="Path to config file")
+    parser.add_argument("--config", type=str, default=None, help="Path to config file")  
     return parser.parse_args()
 
 def load_data(feature_dir: str, split_file: str):
-    X = np.load(os.path.join(feature_dir, "X.npy"))
-    y = np.load(os.path.join(feature_dir, "y.npy"))
+    X = np.load(os.path.join(feature_dir, "X.npy"), mmap_mode="r")
+    y = np.load(os.path.join(feature_dir, "y.npy"), mmap_mode="r")
 
     with open(os.path.join(feature_dir, "meta.json"), "r") as f:
         meta = json.load(f)
@@ -68,25 +68,18 @@ class PatchFeatureDataset(Dataset):
     def __getitem__(self, idx):
         return self.X[idx], self.y[idx]
 
-def save_artifacts(model, metrics_train, metrics_val, config, model_dir, results_dir, run_name):
+def save_artifacts(model, model_dir, run_name):
+    os.makedirs(model_dir, exist_ok=True)
     model_path = os.path.join(model_dir, f"{run_name}.pt")
     torch.save(model.state_dict(), model_path)
-
-    with open(os.path.join(results_dir, f"{run_name}_metrics_train.json"), "w") as f:
-        json.dump(metrics_train, f, indent=2)
-
-    with open(os.path.join(results_dir, f"{run_name}_metrics_val.json"), "w") as f:
-        json.dump(metrics_val, f, indent=2)
-
-    with open(os.path.join(results_dir, f"{run_name}_run_config.json"), "w") as f:
-        json.dump(config, f, indent=2)
+    print(f"Saved model to {model_path}")
 
 def main():
     args = parse_args()
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
-    cfg = { # Just a default placeholder config 
+    cfg = { # Just a default placeholder config (more epochs later) 
         "lr": 1e-3,
         "epochs": 10,
         "weight_decay": 0.0,
@@ -109,6 +102,9 @@ def main():
 
     X_train, y_train = X[train_idx], y[train_idx]
     X_val, y_val = X[val_idx], y[val_idx]
+
+    print(y_train)
+    print(y_val)
 
     logger.info(f"Training samples: {len(X_train)}")
     logger.info(f"Validation samples: {len(X_val)}")
@@ -136,7 +132,6 @@ def main():
     )
     epochs = cfg["epochs"]
 
-
     # Training loop
     for epoch in range(epochs):
         model.train()
@@ -149,46 +144,13 @@ def main():
 
         logger.info(f"Epoch {epoch+1}/{epochs} completed")
 
-    # Evaluation
-    def evaluate(loader):
-        model.eval()
-        all_preds, all_labels, all_probs = [], [], []
-        with torch.no_grad():
-            for Xb, yb in loader:
-                Xb = Xb.cuda()
-                out = model(Xb)
-                prob = torch.softmax(out, dim=1).cpu().numpy()
-                pred = out.argmax(1).cpu().numpy()
-                all_probs.append(prob)
-                all_preds.append(pred)
-                all_labels.append(yb.numpy())
-        return (np.concatenate(all_labels),
-                np.concatenate(all_preds),
-                np.concatenate(all_probs))
-
-    y_train_true, y_train_pred, y_train_proba = evaluate(train_loader)
-    y_val_true, y_val_pred, y_val_proba = evaluate(val_loader)
-
-    metrics_train = compute_metrics(y_train_true, y_train_pred, y_train_proba)
-    metrics_val = compute_metrics(y_val_true, y_val_pred, y_val_proba)
-
-    # Prepare directories
+    # Save artifacts
     model_dir = os.path.join(args.output_dir, "models")
     results_dir = os.path.join(args.output_dir, "results", args.run_name)
     os.makedirs(model_dir, exist_ok=True)
     os.makedirs(results_dir, exist_ok=True)
 
-    # Save artifacts
-    save_artifacts(model, metrics_train, metrics_val, {
-        "run_name": args.run_name,
-        "feature_dir": args.feature_dir,
-        "split_file": args.split_file,
-        "patch_dim": patch_dim,
-        "model_params": cfg,
-        "grid_h": H,
-        "grid_w": W,
-        "seed": args.seed,
-    }, model_dir, results_dir, args.run_name)
+    save_artifacts(model, model_dir, args.run_name)
 
     logger.info("CNN training completed")
 

@@ -3,53 +3,63 @@ import numpy as np
 import argparse
 import json
 from tqdm import tqdm
+from numpy.lib.format import open_memmap
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--in-dir", type=str, required=True, help="Directory containing .npy files")
-    parser.add_argument("--out-dir", type=str, required=True, help="Output directory for grid features")
-    parser.add_argument("--grid-h", type=int, default=37, help="Grid height")
-    parser.add_argument("--grid-w", type=int, default=37, help="Grid width")
+    parser.add_argument("--in-dir", type=str, required=True)
+    parser.add_argument("--out-dir", type=str, required=True)
+    parser.add_argument("--grid-h", type=int, default=37)
+    parser.add_argument("--grid-w", type=int, default=37)
     return parser.parse_args()
 
 def main():
     args = parse_args()
     os.makedirs(args.out_dir, exist_ok=True)
-    files = sorted([f for f in os.listdir(args.in_dir) if f.endswith(".npy")])
 
-    for fname in tqdm(files, desc="Converting"):
-        in_path = os.path.join(args.in_dir, fname)
-        out_path = os.path.join(args.out_dir, fname)
+    files = [f for f in os.listdir(args.in_dir) if f.endswith(".npy")]
 
-        # Load (N, D)
-        arr = np.load(in_path)
-        if arr.ndim != 2:
-            raise ValueError(f"{fname}: expected 2D array (N, D), got shape {arr.shape}")
-        N, D = arr.shape
-        H, W = args.grid_h, args.grid_w
-        if N != H * W:
-            raise ValueError(f"{fname}: N={N} does not match H*W={H*W}")
+    
+    N_samples = len(files)
+    H, W = args.grid_h, args.grid_w
 
-        # Reshape to (H, W, D)
-        grid_hw_d = arr.reshape(H, W, D)
-        # Transpose to (D, H, W)
-        grid_dhw = np.transpose(grid_hw_d, (2, 0, 1))
+    first = np.load(os.path.join(args.in_dir, files[0]))
+    N, D = first.shape
 
-        # Save
-        np.save(out_path, grid_dhw)
+    if N != H * W:
+        raise ValueError("Grid size mismatch")
 
-    meta = {
-        "embedding_dim": D,
-        "num_patches": H * W,
-        "grid_h": H,
-        "grid_w": W
-    }
+    X = open_memmap(
+        os.path.join(args.out_dir, "X.npy"),
+        mode="w+",
+        dtype=np.float32,
+        shape=(N_samples, D, H, W)
+    )
+    y = open_memmap(
+        os.path.join(args.out_dir, "y.npy"),
+        mode="w+",
+        dtype=np.int64,
+        shape=(N_samples,)
+    )
+
+    for idx, fname in enumerate(tqdm(files, desc="Building dataset")):
+        arr = np.load(os.path.join(args.in_dir, fname))  # (H*W, D)
+        grid_dhw = arr.reshape(H, W, D).transpose(2, 0, 1)
+        X[idx] = grid_dhw
+        y[idx] = 0 if "academic" in fname else 1
+
+    X.flush()
+    y.flush()
+
     with open(os.path.join(args.out_dir, "meta.json"), "w") as f:
-        json.dump(meta, f, indent=2)
+        json.dump(
+            {"embedding_dim": D, "grid_h": H, "grid_w": W, "num_patches": H*W},
+            f
+        )
 
-    print("Conversion done")
-    print(f"Saved grid features, meta.json to {args.out_dir}")
-
+    print("Done!")
+    print("X shape:", X.shape)
+    print("y shape:", y.shape)
 
 if __name__ == "__main__":
     main()

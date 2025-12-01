@@ -52,13 +52,9 @@ def main():
         num_classes=2
     )
 
-
     model_path = os.path.join(args.output_dir, "models", f"{args.run_name}.pt")
     logger.info(f"Loading model from {model_path}")
     model.load_state_dict(torch.load(model_path, map_location=device))
-
-    
-    
     model = model.to(device)
     model.eval()
 
@@ -97,17 +93,10 @@ def main():
             xb = xb.to(device)
             outputs = model(xb)
 
-            # If outputs are logits for binary/multiclass classification
             if outputs.ndim == 2:
-                # Softmax for multiclass, sigmoid for binary
-                if outputs.shape[1] == 1:
-                    p = torch.sigmoid(outputs)
-                    pred = (p >= 0.5).long().cpu().numpy()
-                    prob = p.cpu().numpy().flatten()
-                else:
-                    p = torch.softmax(outputs, dim=1)
-                    pred = torch.argmax(p, dim=1).cpu().numpy()
-                    prob = p[:, 1].cpu().numpy()
+                p = torch.softmax(outputs, dim=1)
+                pred = torch.argmax(p, dim=1).cpu().numpy()
+                prob = p[:, 1].cpu().numpy()
             else:
                 raise ValueError("Model output shape not recognized.")
 
