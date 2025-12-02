@@ -19,7 +19,8 @@ import os
 import argparse
 import logging
 import torch
-from torch.utils.data import TensorDataset, DataLoader
+from torch.utils.data import Dataset, DataLoader
+
 from videre.models.torch_models import PatchCNN
 from videre.evals.metrics import compute_metrics
 from videre.evals.plots import plot_roc_curve, plot_pr_curve, plot_confusion_matrix
@@ -34,105 +35,124 @@ def parse_args():
     parser.add_argument("--feature-dir", type=str, required=True, help="Path to feature directory")
     parser.add_argument("--split-file", type=str, required=True, help="Path to split file")
     parser.add_argument("--output-dir", type=str, default="artifacts", help="Output directory")
-    parser.add_argument("--batch-size", type=int, default=32, help="Batch size for inference")
+    parser.add_argument("--batch-size", type=int, default=8, help="Batch size for inference")
     return parser.parse_args()
 
+class PatchDataset(Dataset):
+    def __init__(self, X, y, indices, patch_dim, H, W):
+        self.X = X
+        self.y = y
+        self.indices = indices
+        self.patch_dim = patch_dim
+        self.H = H
+        self.W = W
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, i):
+        idx = self.indices[i]
+
+        x = self.X[idx].astype("float32")  # just this sample
+        x = x.reshape(self.patch_dim, self.H, self.W)
+
+        y = int(self.y[idx])
+
+        return torch.tensor(x), torch.tensor(y)
+
+def evaluate(loader, model, device):
+    model.eval()
+
+    all_preds = []
+    all_labels = []
+    all_probs = []
+
+    with torch.no_grad():
+        for Xb, yb in loader:
+            Xb = Xb.to(device)
+
+            logits = model(Xb)
+            probs = torch.softmax(logits, dim=1).cpu().numpy()
+            preds = logits.argmax(1).cpu().numpy()
+
+            all_probs.append(probs)
+            all_preds.append(preds)
+            all_labels.append(yb.numpy())
+
+    return (
+        np.concatenate(all_labels),
+        np.concatenate(all_preds),
+        np.concatenate(all_probs),
+    )
 
 def main():
     args = parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Using device: {device}")
 
+    # Load metadata
     with open(os.path.join(args.feature_dir, "meta.json"), "r") as f:
         meta = json.load(f)
+
     patch_dim = meta["embedding_dim"]
-
-    model = PatchCNN(
-        embedding_dim=patch_dim,   # 384
-        num_classes=2
-    )
-
-    model_path = os.path.join(args.output_dir, "models", f"{args.run_name}.pt")
-    logger.info(f"Loading model from {model_path}")
-    model.load_state_dict(torch.load(model_path, map_location=device))
-    model = model.to(device)
-    model.eval()
-
-    # Load features
-    logger.info(f"Loading data from {args.feature_dir}")
-    X = np.load(os.path.join(args.feature_dir, "X.npy"))
-    y = np.load(os.path.join(args.feature_dir, "y.npy"))
-
-    # Ensure data is float32 for PyTorch
-    X = X.astype("float32")
-    y = y.astype("int64")
-
     H = meta["grid_h"]
     W = meta["grid_w"]
-    X = X.reshape(-1, patch_dim, H, W)
 
+    # Load model checkpoint
+    model_path = os.path.join(args.output_dir, "models", f"{args.run_name}.pt")
+    logger.info(f"Loading model from {model_path}")
+
+    model = PatchCNN(embedding_dim=patch_dim, num_classes=2)
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.to(device)
+    model.eval()
+
+    X = np.load(os.path.join(args.feature_dir, "X.npy"), mmap_mode="r")
+    y = np.load(os.path.join(args.feature_dir, "y.npy"), mmap_mode="r")
+
+    # Load split indices
     with open(args.split_file, "r") as f:
         split = json.load(f)
 
     test_indices = np.array(split["test"])
-    X_test = torch.tensor(X[test_indices])
-    y_test = torch.tensor(y[test_indices])
+    logger.info(f"Test samples: {len(test_indices)}")
 
-    logger.info(f"Test set: {len(X_test)} samples")
+    # Dataset + dataloader
+    test_dataset = PatchDataset(X, y, test_indices, patch_dim, H, W)
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        num_workers=0,     # safe for mmap
+        pin_memory=False,
+    )
 
-    test_dataset = TensorDataset(X_test, y_test)
-    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
+    # Run evaluation
+    y_true, y_pred, y_proba = evaluate(test_loader, model, device)
 
-    logger.info("Running inference...")
-
-    preds = []
-    probs = []
-
-    with torch.no_grad():
-        for xb, _ in test_loader:
-            xb = xb.to(device)
-            outputs = model(xb)
-
-            if outputs.ndim == 2:
-                p = torch.softmax(outputs, dim=1)
-                pred = torch.argmax(p, dim=1).cpu().numpy()
-                prob = p[:, 1].cpu().numpy()
-            else:
-                raise ValueError("Model output shape not recognized.")
-
-            preds.append(pred)
-            probs.append(prob)
-
-    y_test_pred = np.concatenate(preds)
-    y_test_proba = np.concatenate(probs)
+    # Probabilities for class 1
+    y_proba_class1 = y_proba[:, 1]
 
     # Compute metrics
-    metrics_test = compute_metrics(y_test.numpy(), y_test_pred, y_test_proba)
+    metrics_test = compute_metrics(y_true, y_pred, y_proba_class1)
 
     logger.info("Test metrics:")
-    for key, value in metrics_test.items():
-        logger.info(f"{key}: {value:.4f}")
+    for k, v in metrics_test.items():
+        logger.info(f"{k}: {v:.4f}")
 
+    # Save outputs
     results_dir = os.path.join(args.output_dir, "results", args.run_name)
     os.makedirs(results_dir, exist_ok=True)
 
-    metrics_path = os.path.join(results_dir, f"{args.run_name}_metrics_test.json")
-    with open(metrics_path, "w") as f:
+    with open(os.path.join(results_dir, f"{args.run_name}_metrics_test.json"), "w") as f:
         json.dump(metrics_test, f, indent=2)
 
-    # ROC curve
-    roc_path = os.path.join(results_dir, "roc_curve.png")
-    plot_roc_curve(y_test.numpy(), y_test_proba, roc_path)
+    # Plots
+    plot_roc_curve(y_true, y_proba_class1, os.path.join(results_dir, "roc_curve.png"))
+    plot_pr_curve(y_true, y_proba_class1, os.path.join(results_dir, "pr_curve.png"))
+    plot_confusion_matrix(y_true, y_pred, os.path.join(results_dir, "confusion_matrix.png"))
 
-    # PR curve
-    pr_path = os.path.join(results_dir, "pr_curve.png")
-    plot_pr_curve(y_test.numpy(), y_test_proba, pr_path)
-
-    # Confusion matrix
-    cm_path = os.path.join(results_dir, "confusion_matrix.png")
-    plot_confusion_matrix(y_test.numpy(), y_test_pred, cm_path)
-
-    logger.info("Evaluation completed!")
+    logger.info("Evaluation complete.")
 
 
 if __name__ == "__main__":
