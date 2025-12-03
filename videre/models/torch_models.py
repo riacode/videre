@@ -27,3 +27,42 @@ class PatchCNN(nn.Module):
         x = self.fc(x)
         return x
 
+
+class GradCAM:
+    def __init__(self, model, target_layer): # Target is probably the last layer
+        self.model = model
+        self.target_layer = target_layer
+
+        self.gradients = None
+        self.activations = None
+
+        target_layer.register_forward_hook(self.save_activation)
+        target_layer.register_backward_hook(self.save_gradient)
+
+    def save_activation(self, module, input, output):
+        self.activations = output.detach()
+
+    def save_gradient(self, module, grad_input, grad_output):
+        self.gradients = grad_output[0].detach()
+
+    def __call__(self, x, class_idx=None):
+        logits = self.model(x) 
+
+        if class_idx is None:
+            class_idx = logits.argmax(dim=1).item()
+
+        self.model.zero_grad()
+        loss = logits[:, class_idx]
+        loss.backward()
+
+        grads = self.gradients 
+        activations = self.activations
+
+        weights = grads.mean(dim=(2, 3), keepdim=True)
+
+        cam = F.relu((weights * activations).sum(dim=1, keepdim=True))
+        cam -= cam.min()
+        cam /= cam.max() + 1e-8
+        # cam shape = (1, 1, H, W)
+        return cam.squeeze(0).squeeze(0)  # Shape (H, W)
+
