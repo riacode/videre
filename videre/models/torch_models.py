@@ -27,7 +27,9 @@ class PatchCNN(nn.Module):
         x = self.fc(x)
         return x
 
+class PatchNN(nn.Module):
 
+        
 class GradCAM:
     def __init__(self, model, target_layer): # Target is probably the last layer
         self.model = model

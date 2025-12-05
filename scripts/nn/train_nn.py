@@ -1,21 +1,6 @@
 """
-train_cnn.py
+train_nn.py
 ------------
-CLI to train a CNN classifier on patch-token features for a given split.
-
-Inputs:
-  - features/<ver>/{X.npy, y.npy, meta.json}
-  - data/splits/<default_split>.json
-
-Outputs:
-  - artifacts/models/<run_name>.pt
-  - artifacts/results/<run_name>/metrics_train.json
-  - artifacts/results/<run_name>/metrics_val.json
-  - artifacts/results/<run_name>/run_config.json
-
-Flow:
-  load features -> reshape -> slice by split -> build torch datasets ->
-  train CNN -> evaluate -> save artifacts
 """
 
 import os
