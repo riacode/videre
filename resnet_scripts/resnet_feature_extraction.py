@@ -35,10 +35,12 @@ fake_files = sorted([f for f in os.listdir(fake_processed) if f.endswith('.npy')
 real_features = '/data_full/mini_real_resnet_features/'
 fake_features = '/data_full/mini_fake_resnet_features/'
 
+# this was per video extraction because the average was taken across frames. this was not used.
+# resnet_per_frame_extraction.py is for extraction by frame
 
 @torch.no_grad()
 def extract_video_embedding(frames: np.ndarray) -> np.ndarray:
-    """Compute mean ResNet50 embedding for all frames in a video."""
+    """Return a (T, 2048) matrix — one feature vector per frame."""
     embeddings = []
 
     for frame in frames:
@@ -50,9 +52,8 @@ def extract_video_embedding(frames: np.ndarray) -> np.ndarray:
         feat = feat.squeeze().cpu()    # (2048,)
         embeddings.append(feat)
 
-    stacked = torch.stack(embeddings, dim=0)        # (T, 2048)
-    video_embedding = stacked.mean(dim=0)           # (2048,)
-    return video_embedding.numpy()
+    stacked = torch.stack(embeddings, dim=0)   # (T, 2048)
+    return stacked.numpy()th
 
 
 def process_split(files, in_dir, out_dir, label):
