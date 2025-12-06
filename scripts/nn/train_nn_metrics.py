@@ -1,7 +1,7 @@
 """
-train_nn.py
+train_nn_metrics.py
 ------------
-Train a NN on patch features with given data and splits.
+Train a NN on patch features with given data and splits. Tracks train and val metrics.
 
 Inputs:
   - features/<ver>/{X.npy, y.npy, meta.json}

@@ -7,10 +7,6 @@ Inputs:
   - artifacts/models/<run_name>.pt
   - features/<ver>/{X.npy, y.npy, meta.json}
   - data/splits/default.json
-
-Outputs:
-  - artifacts/results/<run_name>/metrics_test.json
-  - artifacts/results/<run_name>/{roc_curve.png, pr_curve.png, confusion_matrix.png}
 """
 
 import numpy as np

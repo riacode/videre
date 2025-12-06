@@ -49,7 +49,7 @@ def extract_patch_tokens_single_batch(frames_np, device="cuda"):
     handle.remove()
 
     out = tokens["x"]              # (B, 1+N, 384)
-    patches = out[:, 1:, :]        # drop CLS → (B, N, 384)
+    patches = out[:, 1:, :]
 
     del x
     return patches.cpu()
