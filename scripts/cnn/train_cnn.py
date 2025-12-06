@@ -41,20 +41,17 @@ def parse_args():
     parser.add_argument("--split-file", type=str, required=True, help="Path to split JSON")
     parser.add_argument("--run-name", type=str, required=True, help="Run name")
     parser.add_argument("--output-dir", type=str, default="artifacts", help="Output directory")
-    parser.add_argument("--seed", type=int, default=1337, help="Random seed")
+    parser.add_argument("--seed", type=int, default=1338, help="Random seed")
     parser.add_argument("--config", type=str, default=None, help="Path to config file")  
     return parser.parse_args()
 
 def load_data(feature_dir: str, split_file: str):
     X = np.load(os.path.join(feature_dir, "X.npy"), mmap_mode="r")
     y = np.load(os.path.join(feature_dir, "y.npy"), mmap_mode="r")
-
     with open(os.path.join(feature_dir, "meta.json"), "r") as f:
         meta = json.load(f)
-
     with open(split_file, "r") as f:
         split = json.load(f)
-
     return X, y, meta, split
     
 class PatchFeatureDataset(Dataset):
@@ -89,14 +86,11 @@ def main():
         "lr": 1e-4,
         "epochs": 80,
         "weight_decay": 0.0,
-        "patience": 10
+        "patience": 35
     }
 
     # Load arrays, metadata, and split indices
     X, y, meta, split = load_data(args.feature_dir, args.split_file)
-
-    # Infer patch layout
-    num_patches = meta["num_patches"]
     patch_dim = meta["embedding_dim"]
     H = meta["grid_h"]
     W = meta["grid_w"]

@@ -3,11 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class PatchCNN(nn.Module):
-    """
-    CNN for patch token embeddings.
-    Input: (batch, T, H, W, embedding_dim)
-    Output: logits for binary classification
-    """
     def __init__(self, embedding_dim=384, num_classes=2):
         super().__init__()
         # reduce embedding dimension
@@ -26,9 +21,23 @@ class PatchCNN(nn.Module):
         x = x.squeeze(-1).squeeze(-1)
         x = self.fc(x)
         return x
-
+    
 class PatchNN(nn.Module):
+    def __init__(self, patch_dim, H, W, num_classes=2):
+        super().__init__()
+        input_dim = patch_dim * H * W
 
+        self.model = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(input_dim, 512),
+            nn.ReLU(),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, num_classes)
+        )
+
+    def forward(self, x):
+        return self.model(x)
         
 class GradCAM:
     def __init__(self, model, target_layer): # Target is probably the last layer
