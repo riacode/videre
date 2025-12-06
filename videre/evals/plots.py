@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve, auc, precision_recall_curve, confusion_matrix
 import seaborn as sns
 
+plt.rcParams['font.size'] = 15
+
 
 def plot_roc_curve(y_true: np.ndarray, y_scores: np.ndarray, save_path: str) -> None:
     """
@@ -59,7 +61,8 @@ def plot_confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray, save_path: str
     plt.figure(figsize=(8, 6))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
                 xticklabels=['Real', 'Fake'], 
-                yticklabels=['Real', 'Fake'])
+                yticklabels=['Real', 'Fake'],
+                annot_kws={'size': 15})
     plt.ylabel('True Label')
     plt.xlabel('Predicted Label')
     plt.title('Confusion Matrix')
