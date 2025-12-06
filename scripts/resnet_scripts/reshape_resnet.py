@@ -10,8 +10,8 @@ H = W = 7
 D = 2048
 
 # Allocate final arrays
-X = np.memmap("resnet_X.npy", dtype=np.float32, mode="w+", shape=(N, D, H, W))
-y = np.memmap("resnet_y.npy", dtype=np.int64, mode="w+", shape=(N,))
+X = np.memmap("/data_full/resnet_X.npy", dtype=np.float32, mode="w+", shape=(N, D, H, W))
+y = np.memmap("/data_full/resnet_y.npy", dtype=np.int64, mode="w+", shape=(N,))
 
 for i, fname in enumerate(tqdm(files)):
     arr = np.load(os.path.join(patch_dir, fname))   # (49, 2048)
