@@ -1,7 +1,7 @@
 """
-eval_cnn.py
+eval_nn.py
 -----------
-Evaluate a saved PyTorch CNN model on the test split and generate metrics + plots.
+Evaluate a saved PyTorch NN model on the test split and generate metrics + plots.
 
 Inputs:
   - artifacts/models/<run_name>.pt
@@ -21,7 +21,7 @@ import logging
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-from videre.models.torch_models import PatchCNN
+from videre.models.torch_models import PatchNN
 from videre.evals.metrics import compute_metrics
 from videre.evals.plots import plot_roc_curve, plot_pr_curve, plot_confusion_matrix
 
@@ -30,13 +30,14 @@ logger = logging.getLogger(__name__)
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Evaluate a saved PyTorch CNN model on test data.")
+    parser = argparse.ArgumentParser(description="Evaluate a saved PyTorch NN (MLP) model on test data.")
     parser.add_argument("--run-name", type=str, required=True, help="Name of the run (model name)")
     parser.add_argument("--feature-dir", type=str, required=True, help="Path to feature directory")
     parser.add_argument("--split-file", type=str, required=True, help="Path to split file")
     parser.add_argument("--output-dir", type=str, default="artifacts", help="Output directory")
     parser.add_argument("--batch-size", type=int, default=8, help="Batch size for inference")
     return parser.parse_args()
+
 
 class PatchDataset(Dataset):
     def __init__(self, X, y, indices, patch_dim, H, W):
@@ -52,13 +53,10 @@ class PatchDataset(Dataset):
 
     def __getitem__(self, i):
         idx = self.indices[i]
-
-        x = self.X[idx].astype("float32")  # just this sample
-        x = x.reshape(self.patch_dim, self.H, self.W)
-
+        x = self.X[idx].astype("float32").reshape(self.patch_dim, self.H, self.W)
         y = int(self.y[idx])
-
         return torch.tensor(x), torch.tensor(y)
+
 
 def evaluate(loader, model, device):
     model.eval()
@@ -85,6 +83,7 @@ def evaluate(loader, model, device):
         np.concatenate(all_probs),
     )
 
+
 def main():
     args = parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -102,7 +101,7 @@ def main():
     model_path = os.path.join(args.output_dir, "models", f"{args.run_name}.pt")
     logger.info(f"Loading model from {model_path}")
 
-    model = PatchCNN(embedding_dim=patch_dim, num_classes=2)
+    model = PatchNN(patch_dim, H, W, num_classes=2) 
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.to(device)
     model.eval()
@@ -123,13 +122,13 @@ def main():
         test_dataset,
         batch_size=args.batch_size,
         shuffle=False,
-        num_workers=0,     # safe for mmap
+        num_workers=0,
         pin_memory=False,
     )
 
     # Run evaluation
     y_true, y_pred, y_proba = evaluate(test_loader, model, device)
-
+    
     # Probabilities for class 1
     y_proba_class1 = y_proba[:, 1]
 

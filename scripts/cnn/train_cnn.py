@@ -41,32 +41,35 @@ def parse_args():
     parser.add_argument("--split-file", type=str, required=True, help="Path to split JSON")
     parser.add_argument("--run-name", type=str, required=True, help="Run name")
     parser.add_argument("--output-dir", type=str, default="artifacts", help="Output directory")
-    parser.add_argument("--seed", type=int, default=1337, help="Random seed")
+    parser.add_argument("--seed", type=int, default=1338, help="Random seed")
     parser.add_argument("--config", type=str, default=None, help="Path to config file")  
     return parser.parse_args()
 
 def load_data(feature_dir: str, split_file: str):
     X = np.load(os.path.join(feature_dir, "X.npy"), mmap_mode="r")
     y = np.load(os.path.join(feature_dir, "y.npy"), mmap_mode="r")
-
     with open(os.path.join(feature_dir, "meta.json"), "r") as f:
         meta = json.load(f)
-
     with open(split_file, "r") as f:
         split = json.load(f)
-
     return X, y, meta, split
     
 class PatchFeatureDataset(Dataset):
-    def __init__(self, X, y):
-        self.X = torch.tensor(X, dtype=torch.float32)
-        self.y = torch.tensor(y, dtype=torch.long)
+    def __init__(self, X, y, patch_dim, H, W):
+        self.X = X         
+        self.y = y
+        self.patch_dim = patch_dim
+        self.H = H
+        self.W = W
 
     def __len__(self):
         return len(self.X)
 
     def __getitem__(self, idx):
-        return self.X[idx], self.y[idx]
+        x = self.X[idx].astype(np.float32).reshape(self.patch_dim, self.H, self.W)
+        y = self.y[idx]
+        return torch.from_numpy(x), torch.tensor(y, dtype=torch.long)
+
 
 def save_artifacts(model, model_dir, run_name):
     os.makedirs(model_dir, exist_ok=True)
@@ -79,22 +82,18 @@ def main():
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
-    cfg = { # Just a default placeholder config (more epochs later) 
-        "lr": 1e-3,
-        "epochs": 10,
+    cfg = {
+        "lr": 1e-4,
+        "epochs": 80,
         "weight_decay": 0.0,
+        "patience": 35
     }
 
     # Load arrays, metadata, and split indices
     X, y, meta, split = load_data(args.feature_dir, args.split_file)
-
-    # Infer patch layout
-    num_patches = meta["num_patches"]
     patch_dim = meta["embedding_dim"]
     H = meta["grid_h"]
     W = meta["grid_w"]
-
-    X = X.reshape(-1, patch_dim, H, W)
 
     # Apply split
     train_idx = np.array(split["train"])
@@ -110,16 +109,23 @@ def main():
     logger.info(f"Validation samples: {len(X_val)}")
 
     # Prepare datasets
-    train_dataset = PatchFeatureDataset(X_train, y_train)
-    val_dataset = PatchFeatureDataset(X_val, y_val)
+    train_dataset = PatchFeatureDataset(X_train, y_train, patch_dim, H, W)
+    val_dataset   = PatchFeatureDataset(X_val, y_val, patch_dim, H, W)
 
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True,
+        num_workers=0,
+        pin_memory=False)
+    val_loader = DataLoader(val_dataset, batch_size=8, shuffle=False, num_workers=0,
+        pin_memory=False)
 
     model = PatchCNN(
         embedding_dim=patch_dim,   # 384
         num_classes=2
     )
+    model_dir = os.path.join(args.output_dir, "models")
+    results_dir = os.path.join(args.output_dir, "results", args.run_name)
+    os.makedirs(model_dir, exist_ok=True)
+    os.makedirs(results_dir, exist_ok=True)
     
     model = model.to("cuda")
 
@@ -131,6 +137,9 @@ def main():
         weight_decay=cfg["weight_decay"]
     )
     epochs = cfg["epochs"]
+    patience = cfg["patience"]
+    wait = 0
+    best_val_loss = float("inf")
 
     # Training loop
     for epoch in range(epochs):
@@ -141,14 +150,27 @@ def main():
             loss = criterion(model(Xb), yb)
             loss.backward()
             optimizer.step()
-
+        # validate
+        model.eval()
+        val_loss = 0
+        with torch.no_grad():
+            for Xb, yb in val_loader:
+                Xb, yb = Xb.cuda(), yb.cuda()
+                val_loss += criterion(model(Xb), yb).item()
+        val_loss /= len(val_loader)
+    
+        logger.info(f"Epoch {epoch+1}/{epochs} | val_loss={val_loss:.4f}")
+    
+        if val_loss < best_val_loss - 1e-4:
+            best_val_loss = val_loss
+            wait = 0
+            torch.save(model.state_dict(), os.path.join(model_dir, f"{args.run_name}_best.pt"))
+        else:
+            wait += 1
+            if wait >= patience:
+                logger.info("Early stopping triggered")
+                break
         logger.info(f"Epoch {epoch+1}/{epochs} completed")
-
-    # Save artifacts
-    model_dir = os.path.join(args.output_dir, "models")
-    results_dir = os.path.join(args.output_dir, "results", args.run_name)
-    os.makedirs(model_dir, exist_ok=True)
-    os.makedirs(results_dir, exist_ok=True)
 
     save_artifacts(model, model_dir, args.run_name)
 
