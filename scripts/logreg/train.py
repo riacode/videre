@@ -16,7 +16,7 @@ Outputs:
   - artifacts/results/<run_name>/run_config.json
 
 Flow:
-  load features -> slice by split -> scale -> fit model -> evaluate -> save artifacts
+  load features -> slice by split -> fit model -> evaluate -> save artifacts
 """
 import numpy as np
 import json

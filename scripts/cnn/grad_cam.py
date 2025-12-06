@@ -12,7 +12,6 @@ from videre.models.torch_models import PatchCNN, GradCAM
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate one video using GradCAM.")
     parser.add_argument("--video-name", type=str, required=True, help="Name of the input .mp4 video")
@@ -43,11 +42,6 @@ def preprocess_video_frame_for_cam(frame):
     return cropped
 
 def overlay_heatmap_on_video(video_path, heatmap, output_path, alpha=0.4):
-    """
-    Overlay a static heatmap (H, W) over every frame of a video.
-    """
-    
-
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise FileNotFoundError(f"Could not open video: {video_path}")
@@ -78,10 +72,6 @@ def overlay_heatmap_on_video(video_path, heatmap, output_path, alpha=0.4):
 
 
 def load_feature_tensor(og_feature_dir, grid_feature_dir, video_name, D, H, W, device):
-    """
-    Load the correct row from X.npy for this video name.
-    Feature files are named something like 1234_patch.npy → X row 1234.
-    """
     base = os.path.splitext(os.path.basename(video_name))[0]
     print(base)
 
@@ -97,8 +87,7 @@ def load_feature_tensor(og_feature_dir, grid_feature_dir, video_name, D, H, W, d
         raise ValueError(f"Could not find patch feature for video: {video_name}")
 
     logger.info(f"Using feature index {match} from X.npy")
-
-    # Memory-map only that row
+    
     X_path = os.path.join(grid_feature_dir, "X.npy")
     X_mm = np.load(X_path, mmap_mode="r")  # shape (N, D, H, W)
 
@@ -130,8 +119,6 @@ def main():
 
     target_layer = model.conv3
     cam = GradCAM(model, target_layer)
-
-    # Load feature tensor x
     x = load_feature_tensor(args.og_feature_dir, args.grid_feature_dir, args.video_name, D, H, W, device)
     x.requires_grad_(True)
 
