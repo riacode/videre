@@ -7,6 +7,7 @@ from sklearn.metrics import (
     f1_score,
     roc_auc_score,
     average_precision_score,
+    log_loss,
 )
 
 def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, y_proba: Optional[np.ndarray] = None) -> Dict[str, float]:
@@ -30,8 +31,12 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, y_proba: Optional[np
         if scores is not None:
             metrics["roc_auc"] = float(roc_auc_score(y_true, scores))
             metrics["average_precision"] = float(average_precision_score(y_true, scores))
+            metrics["log_loss"] = float(log_loss(y_true, y_proba))
         else:
             metrics["roc_auc"] = float("nan")
             metrics["average_precision"] = float("nan")
+            metrics["log_loss"] = float("nan")
+    else:
+        metrics["log_loss"] = float("nan")
 
     return metrics
