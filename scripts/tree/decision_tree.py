@@ -3,6 +3,7 @@ import numpy as np
 import json
 from sklearn.model_selection import cross_val_score
 from sklearn.tree import DecisionTreeClassifier
+from sklearn.calibration import CalibratedClassifierCV
 
 
 def parse_args():
@@ -42,22 +43,26 @@ def extract_subset(X, y, idx):
 def flatten_features(X):
     return X.reshape(len(X), -1)
 
+# dont need patch features, just have each frame vote on how fake the video is
+
 def train_classifier(X_train, y_train, max_depth):
     clf = DecisionTreeClassifier(
-    criterion='gini', 
-    splitter='best', 
-    max_depth=8, 
-    min_samples_split=2, 
-    min_samples_leaf=1, 
-    min_weight_fraction_leaf=0.0, 
-    max_features=None, 
-    random_state=0, 
-    max_leaf_nodes=None, 
-    min_impurity_decrease=0.0, 
-    class_weight=None, 
-    ccp_alpha=0.0, 
-    monotonic_cst=None)
+        criterion='gini', 
+        splitter='best', 
+        max_depth=8, 
+        min_samples_split=2, 
+        min_samples_leaf=1, 
+        min_weight_fraction_leaf=0.0, 
+        max_features=None, 
+        random_state=0, 
+        max_leaf_nodes=None, 
+        min_impurity_decrease=0.0, 
+        class_weight=None, 
+        ccp_alpha=0.0, 
+        monotonic_cst=None
+        )
 
+    clf = CalibratedClassifierCV(base_clf, method="sigmoid", cv=3)
     clf.fit(X_train, y_train)
     return clf
 
