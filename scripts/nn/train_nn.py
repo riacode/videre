@@ -17,8 +17,6 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 
-from videre.evals.metrics import compute_metrics
-from videre.evals.plots import plot_roc_curve, plot_pr_curve, plot_confusion_matrix
 from videre.models.torch_models import PatchNN
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -56,35 +54,16 @@ class PatchFeatureDataset(Dataset):
         y = int(self.y[idx])
         return torch.from_numpy(x), torch.tensor(y, dtype=torch.long)
 
-def evaluate(loader, model, device):
+def compute_val_loss(loader, model, criterion, device):
     model.eval()
-    all_labels = []
-    all_preds = []
-    all_probs = []
-
+    total_loss = 0
     with torch.no_grad():
         for Xb, yb in loader:
-            Xb = Xb.to(device)
+            Xb, yb = Xb.to(device), yb.to(device)
             logits = model(Xb)
-
-            probs = torch.softmax(logits, dim=1).cpu().numpy()
-            preds = logits.argmax(1).cpu().numpy()
-
-            all_labels.append(yb.numpy())
-            all_preds.append(preds)
-            all_probs.append(probs)
-
-    return (
-        np.concatenate(all_labels),
-        np.concatenate(all_preds),
-        np.concatenate(all_probs),
-    )
-
-def run_and_score(loader, model, device):
-    y_true, y_pred, y_proba = evaluate(loader, model, device)
-    y_class1 = y_proba[:, 1]
-    metrics = compute_metrics(y_true, y_pred, y_class1)
-    return metrics, y_true, y_pred, y_class1
+            loss = criterion(logits, yb)
+            total_loss += loss.item()
+    return total_loss / len(loader)
 
 def main():
     args = parse_args()
@@ -101,9 +80,7 @@ def main():
         "batch_size": 8
     }
     model_dir = os.path.join(args.output_dir, "models")
-    results_dir = os.path.join(args.output_dir, "results", args.run_name)
     os.makedirs(model_dir, exist_ok=True)
-    os.makedirs(results_dir, exist_ok=True)
 
     # Load data
     X, y, meta, split = load_data(args.feature_dir, args.split_file)
@@ -142,7 +119,7 @@ def main():
 
     best_val_loss = float("inf")
     wait = 0
-    history = []
+
     for epoch in range(cfg["epochs"]):
         model.train()
         total_train_loss = 0
@@ -159,33 +136,13 @@ def main():
             total_train_loss += loss.item()
 
         train_loss = total_train_loss / len(train_loader)
-
-        train_metrics, y_train_true, y_train_pred, y_train_prob = run_and_score(
-            train_loader, model, device
-        )
-
-        val_metrics, y_val_true, y_val_pred, y_val_prob = run_and_score(
-            val_loader, model, device
-        )
-
-        print("val metrics", val_metrics)
-
-        val_loss = val_metrics["loss"] if "loss" in val_metrics else val_metrics["log_loss"]
+        val_loss = compute_val_loss(val_loader, model, criterion, device)
 
         logger.info(
             f"Epoch {epoch+1}/{cfg['epochs']} | "
-            f"Train acc: {train_metrics['accuracy']:.4f} | "
-            f"Val acc: {val_metrics['accuracy']:.4f} | "
-            f"Val AUROC: {val_metrics.get('roc_auc', 0):.4f}"
+            f"Train loss: {train_loss:.4f} | "
+            f"Val loss: {val_loss:.4f}"
         )
-
-        history.append({
-            "epoch": epoch + 1,
-            "train_loss": train_loss,
-            "val_loss": val_loss,
-            "train_metrics": train_metrics,
-            "val_metrics": val_metrics
-        })
 
         if val_loss < best_val_loss - 1e-4:
             best_val_loss = val_loss
@@ -198,46 +155,8 @@ def main():
                 break
 
     torch.save(model.state_dict(), os.path.join(model_dir, f"{args.run_name}.pt"))
-
-    # Final metrics + plots
-    train_metrics, y_train_true, y_train_pred, y_train_prob = run_and_score(
-        train_loader, model, device
-    )
-
-    val_metrics, y_val_true, y_val_pred, y_val_prob = run_and_score(
-        val_loader, model, device
-    )
-
-    with open(os.path.join(results_dir, "metrics_train.json"), "w") as f:
-        json.dump(train_metrics, f, indent=2)
-
-    with open(os.path.join(results_dir, "metrics_val.json"), "w") as f:
-        json.dump(val_metrics, f, indent=2)
-
-    with open(os.path.join(results_dir, "history.json"), "w") as f:
-        json.dump(history, f, indent=2)
-
-    plot_roc_curve(y_train_true, y_train_prob,
-                   os.path.join(results_dir, "roc_curve_train.png"))
-    plot_pr_curve(y_train_true, y_train_prob,
-                  os.path.join(results_dir, "pr_curve_train.png"))
-    plot_confusion_matrix(
-        y_train_true, y_train_pred,
-        os.path.join(results_dir, "confusion_matrix_train.png")
-    )
-
-    plot_roc_curve(y_val_true, y_val_prob,
-                   os.path.join(results_dir, "roc_curve_val.png"))
-    plot_pr_curve(y_val_true, y_val_prob,
-                  os.path.join(results_dir, "pr_curve_val.png"))
-    plot_confusion_matrix(
-        y_val_true, y_val_pred,
-        os.path.join(results_dir, "confusion_matrix_val.png")
-    )
-
-    logger.info("Training + evaluation complete")
+    logger.info("Training complete")
 
 
 if __name__ == "__main__":
     main()
-

@@ -5,7 +5,6 @@ import torch.nn.functional as F
 class PatchCNN(nn.Module):
     def __init__(self, embedding_dim=384, num_classes=2):
         super().__init__()
-        # reduce embedding dimension
         self.conv1 = nn.Conv2d(embedding_dim, 128, kernel_size=1)
         self.conv2 = nn.Conv2d(128, 64, kernel_size=3, padding=1)
         self.conv3 = nn.Conv2d(64, 32, kernel_size=3, padding=1)
@@ -13,11 +12,10 @@ class PatchCNN(nn.Module):
         self.fc = nn.Linear(32, num_classes)
     
     def forward(self, x):
-        # x: (batch, D, H, W)
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = F.relu(self.conv3(x))
-        x = self.pool(x)      # (batch, 32, 1, 1)
+        x = self.pool(x)
         x = x.squeeze(-1).squeeze(-1)
         x = self.fc(x)
         return x
@@ -25,13 +23,11 @@ class PatchCNN(nn.Module):
 class PatchNN(nn.Module):
     def __init__(self, patch_dim, H, W, num_classes=2):
         super().__init__()
-        input_dim = patch_dim * H * W
 
         self.model = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
-            nn.Linear(input_dim, 512),
-            nn.ReLU(),
-            nn.Linear(512, 256),
+            nn.Linear(patch_dim, 256),
             nn.ReLU(),
             nn.Linear(256, num_classes)
         )
@@ -74,6 +70,5 @@ class GradCAM:
         cam = F.relu((weights * activations).sum(dim=1, keepdim=True))
         cam -= cam.min()
         cam /= cam.max() + 1e-8
-        # cam shape = (1, 1, H, W)
-        return cam.squeeze(0).squeeze(0)  # Shape (H, W)
+        return cam.squeeze(0).squeeze(0)
 
