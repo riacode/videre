@@ -16,7 +16,7 @@ import argparse
 import logging
 import torch
 from torch.utils.data import Dataset, DataLoader
-
+import torch.nn as nn
 from videre.models.torch_models import PatchNN
 from videre.evals.metrics import compute_metrics
 from videre.evals.plots import plot_roc_curve, plot_pr_curve, plot_confusion_matrix
@@ -53,30 +53,37 @@ class PatchDataset(Dataset):
         y = int(self.y[idx])
         return torch.tensor(x), torch.tensor(y)
 
-
 def evaluate(loader, model, device):
     model.eval()
+    criterion = nn.CrossEntropyLoss()
 
     all_preds = []
     all_labels = []
     all_probs = []
+    total_loss = 0.0
 
     with torch.no_grad():
         for Xb, yb in loader:
-            Xb = Xb.to(device)
+            Xb, yb = Xb.to(device), yb.to(device)
 
             logits = model(Xb)
+            loss = criterion(logits, yb)
+            total_loss += loss.item() * Xb.size(0)  # accumulate weighted by batch size
+
             probs = torch.softmax(logits, dim=1).cpu().numpy()
             preds = logits.argmax(1).cpu().numpy()
 
             all_probs.append(probs)
             all_preds.append(preds)
-            all_labels.append(yb.numpy())
+            all_labels.append(yb.cpu().numpy())
+
+    avg_loss = total_loss / len(loader.dataset)
 
     return (
         np.concatenate(all_labels),
         np.concatenate(all_preds),
         np.concatenate(all_probs),
+        avg_loss
     )
 
 
@@ -123,7 +130,8 @@ def main():
     )
 
     # Run evaluation
-    y_true, y_pred, y_proba = evaluate(test_loader, model, device)
+    y_true, y_pred, y_proba, test_loss = evaluate(test_loader, model, device)
+    logger.info(f"Test loss: {test_loss:.4f}")
     
     # Probabilities for class 1
     y_proba_class1 = y_proba[:, 1]
